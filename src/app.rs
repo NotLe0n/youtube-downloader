@@ -1,26 +1,36 @@
+use std::io::{BufRead, BufReader};
+use egui::TextEdit;
+use rfd::*;
+use cmd_lib::*;
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
+pub struct GUI {
     // Example stuff:
-    label: String,
+    dl_path: String,
+    dl_ext: String,
 
     // this how you opt-out of serialization of a member
     #[serde(skip)]
-    value: f32,
+    dl_url: String,
+    #[serde(skip)]
+    dl_filename: String,
 }
 
-impl Default for TemplateApp {
+impl Default for GUI {
     fn default() -> Self {
         Self {
             // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
+            dl_path: "~/Videos/".to_owned(),
+            dl_url: "".to_owned(),
+            dl_filename: "".to_owned(),
+            dl_ext: ".mp4".to_owned(),
         }
     }
 }
 
-impl TemplateApp {
+impl GUI {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customized the look at feel of egui using
@@ -36,76 +46,95 @@ impl TemplateApp {
     }
 }
 
-impl eframe::App for TemplateApp {
+impl eframe::App for GUI {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
-    /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let Self { label, value } = self;
-
-        // Examples of how to create different panels and windows.
-        // Pick whichever suits you.
-        // Tip: a good default choice is to just keep the `CentralPanel`.
-        // For inspiration and more examples, go to https://emilk.github.io/egui
-
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Quit").clicked() {
-                        frame.quit();
-                    }
-                });
-            });
-        });
-
-        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
-
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(label);
-            });
-
-            ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                *value += 1.0;
-            }
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("powered by ");
-                    ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-                    ui.label(" and ");
-                    ui.hyperlink_to("eframe", "https://github.com/emilk/egui/tree/master/eframe");
-                });
-            });
-        });
+        let Self { dl_path, dl_url, dl_filename, dl_ext } = self;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-
-            ui.heading("eframe template");
-            ui.hyperlink("https://github.com/emilk/eframe_template");
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
+            ui.heading("YouTube downloader");
             egui::warn_if_debug_build(ui);
-        });
 
-        if false {
-            egui::Window::new("Window").show(ctx, |ui| {
-                ui.label("Windows can be moved by dragging them.");
-                ui.label("They are automatically sized based on contents.");
-                ui.label("You can turn on resizing and scrolling if you like.");
-                ui.label("You would normally chose either panels OR windows.");
+            // input box to enter the link
+            ui.horizontal(|ui| {
+                ui.label("YouTube link:");
+                ui.text_edit_singleline(dl_url);
             });
-        }
+            
+            // input box with button to select the directory
+            ui.horizontal(|ui| {
+                ui.label("Output path:");
+                ui.text_edit_singleline(dl_path);
+                if ui.button("Select Directory").clicked() {
+                    let folder = FileDialog::new()
+                        .set_directory("/")
+                        .pick_folder();
+                    
+                    if folder.is_some() {
+                        let f = folder.unwrap();
+                        let f_name = f.display().to_string();
+                        //dl_path = f_name;
+                    }
+                }
+            });
+
+            // input box to enter the file name
+            ui.horizontal(|ui| {
+                ui.label("Output file name:");
+                ui.add_sized([180.0, 20.0], TextEdit::singleline(dl_filename));
+            });
+
+            // Combobox to select the file extension
+            ui.horizontal(|ui| {
+                ui.label("Output file extension:");
+                egui::ComboBox::from_label("")
+                    .selected_text(format!("{}", dl_ext))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(dl_ext, ".mp4".to_owned(), ".mp4");
+                        ui.selectable_value(dl_ext, ".m4a".to_owned(), ".m4a");
+                        ui.selectable_value(dl_ext, ".webm".to_owned(), ".webm");
+                        ui.selectable_value(dl_ext, ".flv".to_owned(), ".flv");
+                        ui.selectable_value(dl_ext, ".mp3".to_owned(), ".mp3");
+                        ui.selectable_value(dl_ext, ".wav".to_owned(), ".wav");
+                        ui.selectable_value(dl_ext, ".aac".to_owned(), ".aac");
+                        ui.selectable_value(dl_ext, ".3gp".to_owned(), ".3gp");
+                    }
+                );
+            });
+
+            // Download button, which executes youtube-dl
+            if ui.button("Download").clicked() {
+                let mut output: String = "output:".to_string();
+                ui.label(format!("{}", output));
+
+                // add slash at the end of the path if it doesn't exist
+                if !dl_path.ends_with('/') {
+                    dl_path.push('/');
+                }
+
+                // execute youtube-dl
+                let proc = spawn_with_output!(youtube-dl -o $dl_path$dl_filename$dl_ext $dl_url);
+                if proc.is_err() {
+
+                }
+        
+                // get output (doesn't work yet)
+                if proc.unwrap().wait_with_pipe(&mut |pipe| {
+                    BufReader::new(pipe)
+                    .lines()
+                    .filter_map(|l| l.ok())
+                    .for_each(|line| {
+                        output = line;
+                    });
+                }).is_err() {
+
+                }
+            }
+        });
     }
 }
