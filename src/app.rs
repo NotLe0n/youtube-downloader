@@ -90,59 +90,50 @@ impl eframe::App for GUI {
 
 			// Combobox to select the file extension
 			ui.horizontal(|ui| {
-				ui.label("Output file extension:");
-				egui::ComboBox::from_label("")
-					.selected_text(format!("{}", dl_ext))
-					.width(50.0)
-					.show_ui(ui, |ui| {
-						// Add all items
-						ui.selectable_value(dl_ext, ".mp4".to_owned(), ".mp4");
-						ui.selectable_value(dl_ext, ".m4a".to_owned(), ".m4a");
-						ui.selectable_value(dl_ext, ".webm".to_owned(), ".webm");
-						ui.selectable_value(dl_ext, ".flv".to_owned(), ".flv");
-						ui.selectable_value(dl_ext, ".mp3".to_owned(), ".mp3");
-						ui.selectable_value(dl_ext, ".wav".to_owned(), ".wav");
-						ui.selectable_value(dl_ext, ".aac".to_owned(), ".aac");
-						ui.selectable_value(dl_ext, ".3gp".to_owned(), ".3gp");
-					}
-				);
+				ext_input(ui, dl_ext);
 			});
 
-			// Download button, which executes youtube-dl
-			if ui.button("Download").clicked() {
-				// add slash at the end of the path if it doesn't exist
-				if !dl_path.ends_with('/') {
-					dl_path.push('/');
-				}
+			ui.horizontal(|ui| {
+				// Download button, which executes youtube-dl
+				if ui.button("Download").clicked() {
+					// add slash at the end of the path if it doesn't exist
+					if !dl_path.ends_with('/') {
+						dl_path.push('/');
+					}
+	
+					let final_dl_path = format!("{}{}{}", dl_path, dl_filename, dl_ext);
+					let url = dl_url.clone(); // cloning so rust doesn't scream at me
 
-				// execute youtube-dl
-				let proc = spawn_with_output!(youtube-dl -o $dl_path$dl_filename$dl_ext $dl_url);
-				if proc.is_err() {
-					egui::Window::new("Error").show(ctx, |ui| {
-						ui.label("An error occured while running youtube-dl");
+					// execute youtube-dl in new thread as to not block the ui
+					use std::thread;
+					
+					thread::spawn(move || {
+						let output = spawn_with_output!(youtube-dl -o $final_dl_path $url).expect("command failed")
+							.wait_with_output()
+							.unwrap();
 					});
+					//run_cmd!(youtube-dl -o $final_dl_path $url).expect("command failed");
 				}
-
-				let mut children = proc.unwrap();
-				let output = children.wait_with_output();
-				if output.is_err() {
-					egui::Window::new("Error").show(ctx, |ui| { 
-						ui.label("An error occured while running youtube-dl");
-					});
-				}
-
-				/*// get output (doesn't work yet)
-				if proc.unwrap().wait_with_pipe(&mut |pipe| {
-					BufReader::new(pipe)
-					.lines()
-					.filter_map(|line| line.ok())
-					.for_each(|line| {
-						output = line;
-					});
-				}).is_err() {
-
-				}*/
-			}
+				
+				ui.add_sized([150.0, 10.0], egui::widgets::ProgressBar::new(0.5));
+			});
+			ui.collapsing("Output", |ui| {
+				ui.label("output here");
+			});
 		});
 	}
+}
+
+fn ext_input(ui: &mut egui::Ui, dl_ext: &mut String) {
+    ui.label("Output file extension:");
+	egui::ComboBox::from_label("")
+		.selected_text(format!("{}", dl_ext))
+		.width(80.0)
+		.show_ui(ui, |ui| {
+			for ext in [".mp4", ".m4a", ".webm", ".flv", ".mp3", ".wav", ".aac", ".3gp"] {
+				// Add all items
+				ui.selectable_value(dl_ext, ext.to_owned(), ext);
+			}			
+		}
+	);
 }
