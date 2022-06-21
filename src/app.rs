@@ -1,6 +1,8 @@
-use egui::TextEdit;
-use rfd::*;
-use cmd_lib::*;
+use egui::{TextEdit, ScrollArea};
+use rfd::FileDialog;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -15,6 +17,10 @@ pub struct GUI {
 	dl_url: String,
 	#[serde(skip)]
 	dl_filename: String,
+	#[serde(skip)]
+	channel: (mpsc::Sender<String>, mpsc::Receiver<String>),//(mpsc::Sender<ChildStdout>, mpsc::Receiver<ChildStdout>),
+	#[serde(skip)]
+	dl_output: String,
 }
 
 impl Default for GUI {
@@ -22,9 +28,11 @@ impl Default for GUI {
 		Self {
 			// Example stuff:
 			dl_path: "~/Videos/".to_owned(),
-			dl_url: "".to_owned(),
-			dl_filename: "".to_owned(),
+			dl_url: String::new(),
+			dl_filename: String::new(),
 			dl_ext: ".mp4".to_owned(),
+			channel: mpsc::channel(),
+			dl_output: String::new(),
 		}
 	}
 }
@@ -52,8 +60,8 @@ impl eframe::App for GUI {
 	}
 
 	/// Called each time the UI needs repainting, which may be many times per second.
-	fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-		let Self { dl_path, dl_url, dl_filename, dl_ext } = self;
+	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+		let Self { dl_path, dl_url, dl_filename, dl_ext, channel, dl_output } = self;
 
 		egui::CentralPanel::default().show(ctx, |ui| {
 			ui.heading("YouTube downloader");
@@ -101,24 +109,57 @@ impl eframe::App for GUI {
 						dl_path.push('/');
 					}
 	
-					let final_dl_path = format!("{}{}{}", dl_path, dl_filename, dl_ext);
+					let dl_filename_with_ext = format!("{}{}", dl_filename, dl_ext);
+					let path = dl_path.clone();
 					let url = dl_url.clone(); // cloning so rust doesn't scream at me
 
 					// execute youtube-dl in new thread as to not block the ui
 					use std::thread;
-					
+					let tx = channel.0.clone();
 					thread::spawn(move || {
-						let output = spawn_with_output!(youtube-dl -o $final_dl_path $url).expect("command failed")
-							.wait_with_output()
-							.unwrap();
+						let mut cmd = Command::new("youtube-dl")
+							.current_dir(path)
+							.args([
+								format!("-o {}", dl_filename_with_ext),
+								url
+							])
+							.stderr(Stdio::piped())
+							.stdout(Stdio::piped())
+							.spawn().expect("cmd error");
+
+						let stdout = cmd.stdout.take().unwrap();
+						
+						let bytes = stdout.bytes();
+						let mut str = String::new();
+
+						for b in bytes {
+							let chr = b.unwrap() as char;
+	
+							// newline every time a new progress update gets sent
+							if chr == '[' && !str.is_empty() {
+								tx.send(str.clone()).unwrap();
+								str += "\n";
+							}
+	
+							// add all chars together, except control characters like backspace
+							if !chr.is_control() {
+								str += chr.to_string().as_str();
+							}
+						}
 					});
-					//run_cmd!(youtube-dl -o $final_dl_path $url).expect("command failed");
 				}
-				
-				ui.add_sized([150.0, 10.0], egui::widgets::ProgressBar::new(0.5));
 			});
+
 			ui.collapsing("Output", |ui| {
-				ui.label("output here");
+				ScrollArea::vertical().stick_to_bottom().show(ui, |ui|{
+					let (_, rx) = channel;
+					let output = rx.try_recv();
+					if !output.is_err() {
+						*dl_output = output.unwrap();
+					}
+
+					ui.label(format!("{}", dl_output));
+				});
 			});
 		});
 	}
