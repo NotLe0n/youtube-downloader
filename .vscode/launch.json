@@ -1,0 +1,64 @@
+{
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in library 'youtube_downloader'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--lib",
+					"--package=youtube_downloader"
+				],
+				"filter": {
+					"name": "youtube_downloader",
+					"kind": "lib"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug executable 'youtube_downloader_bin'",
+			"cargo": {
+				"args": [
+					"build",
+					"--bin=youtube_downloader_bin",
+					"--package=youtube_downloader"
+				],
+				"filter": {
+					"name": "youtube_downloader_bin",
+					"kind": "bin"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in executable 'youtube_downloader_bin'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--bin=youtube_downloader_bin",
+					"--package=youtube_downloader"
+				],
+				"filter": {
+					"name": "youtube_downloader_bin",
+					"kind": "bin"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		}
+	]
+}

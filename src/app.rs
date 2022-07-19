@@ -26,8 +26,7 @@ pub struct GUI {
 impl Default for GUI {
 	fn default() -> Self {
 		Self {
-			// Example stuff:
-			dl_path: "~/Videos/".to_owned(),
+			dl_path: String::from(dirs::video_dir().unwrap().display().to_string()),
 			dl_url: String::new(),
 			dl_filename: String::new(),
 			dl_ext: ".mp4".to_owned(),
@@ -80,7 +79,7 @@ impl eframe::App for GUI {
 				if ui.button("Select Directory").clicked() {
 					// open File Dialog
 					let folder = FileDialog::new()
-						.set_directory("/")
+						.set_directory(std::path::MAIN_SEPARATOR.to_string())
 						.pick_folder();
 					
 					if folder.is_some() {
@@ -104,49 +103,7 @@ impl eframe::App for GUI {
 			ui.horizontal(|ui| {
 				// Download button, which executes youtube-dl
 				if ui.button("Download").clicked() {
-					// add slash at the end of the path if it doesn't exist
-					if !dl_path.ends_with('/') {
-						dl_path.push('/');
-					}
-	
-					let dl_filename_with_ext = format!("{}{}", dl_filename, dl_ext);
-					let path = dl_path.clone();
-					let url = dl_url.clone(); // cloning so rust doesn't scream at me
-
-					// execute youtube-dl in new thread as to not block the ui
-					use std::thread;
-					let tx = channel.0.clone();
-					thread::spawn(move || {
-						let mut cmd = Command::new("youtube-dl")
-							.current_dir(path)
-							.args([
-								format!("-o {}", dl_filename_with_ext),
-								url
-							])
-							.stderr(Stdio::piped())
-							.stdout(Stdio::piped())
-							.spawn().expect("cmd error");
-
-						let stdout = cmd.stdout.take().unwrap();
-						
-						let bytes = stdout.bytes();
-						let mut str = String::new();
-
-						for b in bytes {
-							let chr = b.unwrap() as char;
-	
-							// newline every time a new progress update gets sent
-							if chr == '[' && !str.is_empty() {
-								tx.send(str.clone()).unwrap();
-								str += "\n";
-							}
-	
-							// add all chars together, except control characters like backspace
-							if !chr.is_control() {
-								str += chr.to_string().as_str();
-							}
-						}
-					});
+					download_button_clicked(dl_path, dl_filename, dl_ext, dl_url, channel);
 				}
 			});
 
@@ -160,9 +117,59 @@ impl eframe::App for GUI {
 
 					ui.label(format!("{}", dl_output));
 				});
-			});
+			}).fully_open();
 		});
 	}
+}
+
+fn download_button_clicked(dl_path: &mut String, dl_filename: &mut String, dl_ext: &mut String, dl_url: &mut String, channel: &mut (mpsc::Sender<String>, mpsc::Receiver<String>)) {
+    // add slash at the end of the path if it doesn't exist
+    if !dl_path.ends_with(std::path::MAIN_SEPARATOR) {
+		dl_path.push(std::path::MAIN_SEPARATOR);
+	}
+    let dl_filename_with_ext = format!("{}{}", dl_filename, dl_ext);
+    let path = dl_path.clone();
+    let url = dl_url.clone(); // cloning so rust doesn't scream at me
+	
+    // execute youtube-dl in new thread as to not block the ui
+	use std::thread;
+    let tx = channel.0.clone();
+    thread::spawn(move || {
+		let cmd = Command::new("./lib/youtube-dl")
+			.current_dir(path)
+			.args([
+				format!("-o {}", dl_filename_with_ext),
+				url
+			])
+			.stderr(Stdio::piped())
+			.stdout(Stdio::piped())
+			.spawn();
+
+		if cmd.is_err() {
+			tx.send(format!("Command Failed: {}", cmd.err().unwrap())).unwrap();
+			return;
+		}
+
+		let stdout = cmd.unwrap().stdout.take().unwrap();
+	
+		let bytes = stdout.bytes();
+		let mut str = String::new();
+
+		for b in bytes {
+			let chr = b.unwrap() as char;
+
+			// newline every time a new progress update gets sent
+			if chr == '[' && !str.is_empty() {
+				tx.send(str.clone()).unwrap();
+				str += "\n";
+			}
+
+			// add all chars together, except control characters like backspace
+			if !chr.is_control() {
+				str += chr.to_string().as_str();
+			}
+		}
+	});
 }
 
 fn ext_input(ui: &mut egui::Ui, dl_ext: &mut String) {
@@ -174,7 +181,7 @@ fn ext_input(ui: &mut egui::Ui, dl_ext: &mut String) {
 			for ext in [".mp4", ".m4a", ".webm", ".flv", ".mp3", ".wav", ".aac", ".3gp"] {
 				// Add all items
 				ui.selectable_value(dl_ext, ext.to_owned(), ext);
-			}			
+			}
 		}
 	);
 }

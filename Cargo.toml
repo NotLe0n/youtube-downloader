@@ -20,6 +20,7 @@ rfd = "0.8.4" # Filedialog library
 egui = "0.18.0" # GUI Library
 eframe = { version = "0.18.0", features = ["persistence"] } # Rendering Library
 serde = { version = "1", features = ["derive"] } # You only need this if you want app persistence
+dirs = "4.0" # for getting standard directories
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
